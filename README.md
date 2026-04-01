@@ -1,8 +1,8 @@
 # RAG + RBAC
 
-> Role-Based Access Control enforced at the vector search layer — sensitive documents never reach the LLM.
+> Role-Based Access Control enforced at the vector search layer, so sensitive documents never reach the LLM.
 
-A .NET 8 Minimal API that combines Retrieval-Augmented Generation with document-level access control. Documents are filtered via Pinecone metadata **before** retrieval, ensuring users only see content matching their clearance level.
+A .NET 8 Minimal API that combines Retrieval Augmented Generation with document level access control. Documents are filtered via Pinecone metadata **before** retrieval, ensuring users only see content matching their clearance level.
 
 ## Tech Stack
 
@@ -19,7 +19,7 @@ A .NET 8 Minimal API that combines Retrieval-Augmented Generation with document-
 
 ```
                         ┌──────────────┐
-  User Query ──────────>│  RBAC Layer  │  Resolve user role & accessible levels
+  User Query ──────────>│  RBAC Layer  │  Resolve user role and accessible levels
                         └──────┬───────┘
                                v
                         ┌──────────────┐
@@ -37,7 +37,7 @@ A .NET 8 Minimal API that combines Retrieval-Augmented Generation with document-
                         └──────────────┘
 ```
 
-**Security model:** RBAC is enforced at the vector search layer, not post-retrieval. Documents a user cannot access are excluded from the search results entirely — they never enter the LLM context window.
+**Security model:** RBAC is enforced at the vector search layer, not post-retrieval. Documents a user cannot access are excluded from the search results entirely, so they never enter the LLM context window.
 
 ## Role Hierarchy
 
@@ -51,27 +51,27 @@ A .NET 8 Minimal API that combines Retrieval-Augmented Generation with document-
 
 ## RBAC in Action
 
-### 1. List Users & Access Levels
+### 1. List Users and Access Levels
 
-`GET /api/users` — returns all users with their role and accessible role levels.
+`GET /api/users` returns all users with their role and accessible role levels.
 
 ![Users endpoint showing all users with their roles and accessible levels](Images/Users.png)
 
 ### 2. Seed Sample Documents
 
-`POST /api/ingest/seed` — ingests sample documents tagged across all role levels into Pinecone.
+`POST /api/ingest/seed` ingests sample documents tagged across all role levels into Pinecone.
 
 ![Seed endpoint response with document IDs](Images/Seed_data.png)
 
 ### 3. Query as Intern (Restricted)
 
-An **Intern** asks _"What is the Q4 budget?"_ — the budget document requires Manager-level access, so RBAC blocks it. The LLM responds with _"I don't have enough information"_ because the document was never retrieved.
+An **Intern** asks "What is the Q4 budget?" but the budget document requires Manager-level access, so RBAC blocks it. The LLM responds with "I don't have enough information" because the document was never retrieved.
 
 ![Intern query returns no relevant sources due to RBAC filtering](Images/RAG_Query.png)
 
 ### 4. Query as Manager (Authorized)
 
-A **Manager** asks the same question — now the budget document is within their access scope. The LLM returns the answer with source citations.
+A **Manager** asks the same question and since the budget document is within their access scope, the LLM returns the answer with source citations.
 
 ![Manager query returns budget information with source documents](Images/RAG_Query_2.png)
 
@@ -122,7 +122,7 @@ curl -X POST http://localhost:5000/api/query \
   -H "Content-Type: application/json" \
   -d '{"userId": "dev01", "question": "What is our cloud infrastructure?", "topK": 3}'
 
-# RBAC comparison — same question, all roles
+# RBAC comparison: same question, all roles
 curl http://localhost:5000/api/demo/rbac-comparison?question=What%20is%20the%20Q4%20budget
 ```
 
