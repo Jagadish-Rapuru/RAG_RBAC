@@ -1,80 +1,91 @@
-# RAG_RBAC
+# RAG + RBAC
 
-**Semantic Kernel + RAG + Role-Based Access Control**
+> Role-Based Access Control enforced at the vector search layer — sensitive documents never reach the LLM.
 
-A .NET 8 Minimal API that implements a Retrieval-Augmented Generation pipeline with document-level access control and role-based query filtering using hardcoded roles.
+A .NET 8 Minimal API that combines Retrieval-Augmented Generation with document-level access control. Documents are filtered via Pinecone metadata **before** retrieval, ensuring users only see content matching their clearance level.
 
 ## Tech Stack
 
-| Layer             | Technology                        |
-|-------------------|-----------------------------------|
-| Orchestration     | Microsoft Semantic Kernel 1.30    |
-| LLM               | Azure OpenAI GPT-4o              |
-| Embeddings        | Azure OpenAI text-embedding-ada-002 (1536d) |
-| Vector Store      | Pinecone (metadata filtering)    |
-| RBAC              | Hardcoded roles with hierarchical access |
-| API               | ASP.NET Minimal APIs + Swagger   |
+| Layer | Technology |
+|-------|-----------|
+| Runtime | .NET 8 (ASP.NET Minimal APIs) |
+| Orchestration | Microsoft Semantic Kernel 1.30 |
+| LLM | Azure OpenAI GPT-4o |
+| Embeddings | text-embedding-ada-002 (1536d) |
+| Vector Store | Pinecone (metadata filtering) |
+| API Docs | Swagger / Swashbuckle |
 
-## Architecture and RBAC Flow
+## How It Works
 
 ```
-User Query ("What is the Q4 budget?")
-        |
-        v
-  ┌─────────────────┐
-  │  RbacService     │  --> Identify user, resolve accessible roles
-  │  (Hardcoded)     │      Developer = [Intern, Developer]
-  └────────┬────────┘
-           v
-  ┌─────────────────┐
-  │  Embedding       │  --> Convert question to 1536-dim vector
-  │  (ada-002)       │
-  └────────┬────────┘
-           v
-  ┌─────────────────┐
-  │  Pinecone Search │  --> Vector search WITH metadata filter:
-  │  + RBAC Filter   │      MinimumAccessRole IN [Intern, Developer]
-  └────────┬────────┘      (Manager/Director/Admin docs excluded)
-           v
-  ┌─────────────────┐
-  │  GPT-4o          │  --> Generate grounded answer from filtered context
-  │  (Semantic Kernel)│
-  └─────────────────┘
+                        ┌──────────────┐
+  User Query ──────────>│  RBAC Layer  │  Resolve user role & accessible levels
+                        └──────┬───────┘
+                               v
+                        ┌──────────────┐
+                        │  Embedding   │  Convert query to 1536-dim vector
+                        │  (ada-002)   │
+                        └──────┬───────┘
+                               v
+                        ┌──────────────┐
+                        │  Pinecone    │  Vector search WITH metadata filter:
+                        │  + RBAC      │  MinimumAccessRole IN [allowed roles]
+                        └──────┬───────┘  Unauthorized docs are NEVER retrieved
+                               v
+                        ┌──────────────┐
+                        │  GPT-4o      │  Generate answer from filtered context
+                        └──────────────┘
 ```
 
-**Key insight:** RBAC is enforced at the vector search layer via Pinecone metadata filtering. Documents the user cannot access are never retrieved, so they never enter the LLM context window. This is more secure than post-retrieval filtering because sensitive content is never exposed to the model.
+**Security model:** RBAC is enforced at the vector search layer, not post-retrieval. Documents a user cannot access are excluded from the search results entirely — they never enter the LLM context window.
 
 ## Role Hierarchy
 
-| Role     | Level | Can Access                              |
-|----------|-------|-----------------------------------------|
-| Intern   | 0     | Intern docs only                        |
-| Developer| 1     | Intern + Developer docs                 |
-| Manager  | 2     | Intern + Developer + Manager docs       |
-| Director | 3     | All except Admin docs                   |
-| Admin    | 4     | Everything                              |
+| Role | Level | Access Scope |
+|------|-------|-------------|
+| Intern | 0 | Intern docs only |
+| Developer | 1 | Intern + Developer |
+| Manager | 2 | Intern + Developer + Manager |
+| Director | 3 | All except Admin |
+| Admin | 4 | Everything |
 
-## Hardcoded Test Users
+## RBAC in Action
 
-| UserId    | Name               | Role     |
-|-----------|--------------------|----------|
-| intern01  | Alex (Intern)      | Intern   |
-| dev01     | Jagadish (Developer)| Developer|
-| mgr01     | Rohit (Manager)    | Manager  |
-| dir01     | Sarah (Director)   | Director |
-| admin01   | System Admin       | Admin    |
+### 1. List Users & Access Levels
+
+`GET /api/users` — returns all users with their role and accessible role levels.
+
+![Users endpoint showing all users with their roles and accessible levels](Images/Users.png)
+
+### 2. Seed Sample Documents
+
+`POST /api/ingest/seed` — ingests sample documents tagged across all role levels into Pinecone.
+
+![Seed endpoint response with document IDs](Images/Seed_data.png)
+
+### 3. Query as Intern (Restricted)
+
+An **Intern** asks _"What is the Q4 budget?"_ — the budget document requires Manager-level access, so RBAC blocks it. The LLM responds with _"I don't have enough information"_ because the document was never retrieved.
+
+![Intern query returns no relevant sources due to RBAC filtering](Images/RAG_Query.png)
+
+### 4. Query as Manager (Authorized)
+
+A **Manager** asks the same question — now the budget document is within their access scope. The LLM returns the answer with source citations.
+
+![Manager query returns budget information with source documents](Images/RAG_Query_2.png)
 
 ## Quick Start
 
-### 1. Prerequisites
+### Prerequisites
 
 - .NET 8 SDK
-- Azure OpenAI resource with `gpt-4o` and `text-embedding-ada-002` deployments
-- Pinecone account with an index named `rbac-rag-docs` (1536 dimensions, cosine metric)
+- Azure OpenAI resource (`gpt-4o` + `text-embedding-ada-002` deployments)
+- Pinecone index (`rbac-rag-docs`, 1536 dimensions, cosine metric)
 
-### 2. Configure
+### Configure
 
-Update `appsettings.json` with your credentials:
+Update `appsettings.json`:
 
 ```json
 {
@@ -91,66 +102,53 @@ Update `appsettings.json` with your credentials:
 }
 ```
 
-### 3. Run
+> Use `dotnet user-secrets` or environment variables for real credentials. Never commit actual keys.
+
+### Run
 
 ```bash
 dotnet restore
 dotnet run
 ```
 
-### 4. Seed and Test
+### Test
 
 ```bash
-# Seed sample documents (8 docs across all role levels)
+# Seed sample documents
 curl -X POST http://localhost:5000/api/ingest/seed
 
-# Query as a Developer (sees Intern + Developer docs only)
+# Query as Developer
 curl -X POST http://localhost:5000/api/query \
   -H "Content-Type: application/json" \
   -d '{"userId": "dev01", "question": "What is our cloud infrastructure?", "topK": 3}'
 
-# Query as an Intern (same question, fewer results)
-curl -X POST http://localhost:5000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{"userId": "intern01", "question": "What is our cloud infrastructure?", "topK": 3}'
-
-# RBAC Comparison Demo: same question, all users
-curl "http://localhost:5000/api/demo/rbac-comparison?question=What%20is%20the%20Q4%20budget"
+# RBAC comparison — same question, all roles
+curl http://localhost:5000/api/demo/rbac-comparison?question=What%20is%20the%20Q4%20budget
 ```
 
-## API Endpoints
+## API Reference
 
-| Method | Endpoint                    | Description                            |
-|--------|-----------------------------|----------------------------------------|
-| GET    | /api/users                  | List all users and their access levels |
-| POST   | /api/ingest                 | Ingest a single document with role tag |
-| POST   | /api/ingest/seed            | Seed 8 sample documents                |
-| POST   | /api/query                  | Query with RBAC-filtered RAG           |
-| GET    | /api/demo/rbac-comparison   | Same question across all user roles    |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/users` | List all users with access levels |
+| `POST` | `/api/ingest` | Ingest a document with role tag |
+| `POST` | `/api/ingest/seed` | Seed sample documents |
+| `POST` | `/api/query` | RAG query with RBAC enforcement |
+| `GET` | `/api/demo/rbac-comparison` | Compare responses across all roles |
 
 ## Project Structure
 
 ```
 RAG_RBAC/
 ├── Models/
-│   ├── AppUser.cs          # User model + Role enum (5 levels)
-│   ├── RagDocument.cs       # Pinecone vector record with role metadata
-│   └── Dtos.cs             # Request/Response DTOs
+│   ├── AppUser.cs            # AppRole enum (5 levels) + AppUser
+│   ├── RagDocument.cs        # Pinecone vector record with role metadata
+│   └── Dtos.cs               # Request/Response records
 ├── Services/
-│   ├── RbacService.cs       # Hardcoded users + role access logic
-│   ├── IngestionService.cs  # Embed + store docs in Pinecone
-│   ├── RagQueryService.cs   # RBAC-filtered RAG pipeline
-│   └── SeedData.cs         # Sample docs at every role level
-├── Program.cs              # DI + Semantic Kernel config + Minimal API
-├── appsettings.json        # Azure OpenAI + Pinecone config
-└── RAG_RBAC.csproj      # NuGet packages
+│   ├── RbacService.cs        # User store + role hierarchy logic
+│   ├── IngestionService.cs   # Embed + upsert to Pinecone
+│   ├── RagQueryService.cs    # RBAC-filtered RAG pipeline
+│   └── SeedData.cs           # Sample docs across all role levels
+├── Program.cs                # DI, Semantic Kernel config, endpoints
+└── appsettings.json          # Configuration (placeholder keys)
 ```
-
-## Next Steps (Production Upgrades)
-
-- Replace hardcoded roles with Azure AD / ASP.NET Identity
-- Add JWT authentication middleware
-- Implement document chunking for large files
-- Add Pinecone namespace-per-tenant for multi-tenancy
-- Add Redis caching for frequent queries
-- Implement audit logging for compliance
